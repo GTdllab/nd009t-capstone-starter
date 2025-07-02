@@ -115,7 +115,7 @@ def print_confusion_matrix(y_true, y_pred, class_names=None, save_path=None):
     return cm
 
 
-def train(model, train_loader, validation_loader, epochs, criterion, optimizer, hook, device):
+def train(model, train_loader, validation_loader, epochs, criterion, optimizer, scheduler, hook, device):
     '''
     TODO: Complete this function that can take a model and
           data loaders for training and will get train the model
@@ -149,6 +149,10 @@ def train(model, train_loader, validation_loader, epochs, criterion, optimizer, 
                 if phase == 'train':
                     optimizer.zero_grad()
                     loss.backward()
+                    
+                    # Add gradient clipping to prevent gradient explosion
+                    torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+                    
                     optimizer.step()
 
                 _, preds = torch.max(outputs, 1)
@@ -173,19 +177,59 @@ def train(model, train_loader, validation_loader, epochs, criterion, optimizer, 
             epoch_acc = running_corrects / running_samples
 
             if phase == 'valid':
+                # Update learning rate scheduler
+                scheduler.step(epoch_loss)
+                
+                # Monitor per-class performance during validation
+                from collections import defaultdict
+                class_correct = defaultdict(int)
+                class_total = defaultdict(int)
+                
+                model.eval()
+                with torch.no_grad():
+                    for inputs, labels in validation_loader:
+                        inputs, labels = inputs.to(device), labels.to(device)
+                        outputs = model(inputs)
+                        _, preds = torch.max(outputs, 1)
+                        
+                        for label, pred in zip(labels, preds):
+                            class_total[label.item()] += 1
+                            if label == pred:
+                                class_correct[label.item()] += 1
+                
+                # Log per-class accuracy
+                for class_id in range(5):
+                    if class_total[class_id] > 0:
+                        acc = class_correct[class_id] / class_total[class_id]
+                        logger.info(f'Class {class_id+1} accuracy: {acc:.4f}')
+                    else:
+                        logger.info(f'Class {class_id+1} accuracy: No samples')
+                
                 if epoch_loss < best_loss:
                     best_loss = epoch_loss
+                    loss_counter = 0  # Reset counter when we improve
                 else:
                     loss_counter += 1
-            logger.info('{} loss: {:.4f}, acc: {:.4f}, best loss: {:.4f}'.format(phase,
-                                                                                        epoch_loss,
-                                                                                        epoch_acc,
-                                                                                        best_loss))
-        if loss_counter==3:
-            print("Finish training because epoch loss increased")            
+                    
+            logger.info('{} loss: {:.4f}, acc: {:.4f}, best loss: {:.4f}, LR: {:.6f}'.format(
+                phase, epoch_loss, epoch_acc, best_loss, optimizer.param_groups[0]['lr']))
+                
+        # More relaxed early stopping
+        if loss_counter == 5:  # Changed from 3 to 5
+            print("Finish training because epoch loss increased for 5 consecutive epochs")            
             break
     return model
     
+def init_weights(m):
+    '''
+    Initialize weights properly to prevent gradient explosion
+    '''
+    
+    if isinstance(m, nn.Linear):
+        torch.nn.init.xavier_uniform_(m.weight)
+        if m.bias is not None:
+            m.bias.data.fill_(0.01)
+
 def net():
     '''
     TODO: Complete this function that initializes your model
@@ -195,12 +239,18 @@ def net():
     # load the pretrained model
     model = models.resnet50(pretrained=True)
     
-    for name, param in model.named_parameters():
-        if 'layer4' not in name and 'fc' not in name:
-            param.requires_grad = False
+    # Only freeze early layers, allow later layers to adapt
+    for param in model.parameters():
+        param.requires_grad = False
     
-    # Improved classifier head
+    # Unfreeze the last residual block for better feature learning
+    for param in model.layer4.parameters():
+        param.requires_grad = True
+        
+    # find the number of inputs to the final layer of the network
     num_inputs = model.fc.in_features
+    
+    # Improved classifier with batch normalization and dropout
     model.fc = nn.Sequential(
         nn.Linear(num_inputs, 256),
         nn.BatchNorm1d(256),
@@ -212,6 +262,9 @@ def net():
         nn.Dropout(0.3),
         nn.Linear(128, num_classes)
     )
+    
+    # Initialize the new layers properly
+    model.fc.apply(init_weights)
     
     return model
 
@@ -293,7 +346,20 @@ def main(args):
     TODO: Create your loss and optimizer
     '''
     loss_criterion = nn.CrossEntropyLoss()
-    optimizer = optim.Adam(model.fc.parameters(), args.lr)
+    
+    # Get all trainable parameters (includes unfrozen layer4 + fc)
+    trainable_params = [p for p in model.parameters() if p.requires_grad]
+    logger.info(f"Number of trainable parameters: {sum(p.numel() for p in trainable_params)}")
+    
+    # Use different learning rates for different parts
+    optimizer = optim.Adam([
+        {'params': model.fc.parameters(), 'lr': args.lr},
+        {'params': model.layer4.parameters(), 'lr': args.lr * 0.1}  # Lower LR for pretrained layers
+    ])
+    
+    # Add learning rate scheduler
+    from torch.optim.lr_scheduler import ReduceLROnPlateau
+    scheduler = ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=3, verbose=True)
     
     '''
     TODO: Call the train function to start training your model
@@ -310,7 +376,7 @@ def main(args):
 
     logger.info("Training the model")
     
-    model = train(model, train_loader, validation_loader, args.epochs, loss_criterion, optimizer, hook, device)
+    model = train(model, train_loader, validation_loader, args.epochs, loss_criterion, optimizer, scheduler, hook, device)
   
     '''
     TODO: Test the model to see its accuracy
@@ -353,7 +419,7 @@ if __name__=='__main__':
     )
     parser.add_argument('--lr',
                         type=float,
-                        default=0.001)
+                        default=0.001)  
     parser.add_argument('--batch-size',
                         type=int,
                         default=32)

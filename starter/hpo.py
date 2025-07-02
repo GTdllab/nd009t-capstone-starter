@@ -11,135 +11,73 @@ import torchvision.transforms as transforms
 import argparse
 import logging
 import os
-import time
 import sys
+
 from PIL import ImageFile
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 
-from smdebug import modes
-from smdebug.pytorch import get_hook
-import smdebug.pytorch as smd
-
-from sklearn.metrics import confusion_matrix, classification_report
-import matplotlib.pyplot as plt
-import seaborn as sns
+import argparse
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 logger.addHandler(logging.StreamHandler(sys.stdout))
 
 
-
-#TODO: Import dependencies for Debugging andd Profiling
-
-def test(model, test_loader, criterion, hook, device):
+def test(model, test_loader, criterion, device):
     '''
     TODO: Complete this function that can take a model and a 
           testing data loader and will get the test accuray/loss of the model
           Remember to include any debugging/profiling hooks that you might need
     '''
     model.eval()
-    hook.set_mode(modes.EVAL)
-    running_loss=0.0
-    running_corrects=0.0
-    all_preds = []
-    all_labels = []
+    running_loss=0
+    running_corrects=0
     
-    with torch.no_grad():
+    with torch.no_grad():  # Add no_grad for efficiency during testing
         for inputs, labels in test_loader:
+            # Move data to device
             inputs = inputs.to(device)
             labels = labels.to(device)
             
             outputs=model(inputs)
             loss=criterion(outputs, labels)
             _, preds = torch.max(outputs, 1)
-            
-            # Store predictions and labels for confusion matrix
-            all_preds.extend(preds.cpu().numpy())
-            all_labels.extend(labels.cpu().numpy())
-            
-            running_loss += float(loss.item() * inputs.size(0))
-            running_corrects += float(torch.sum(preds == labels.data))
+            running_loss += loss.item() * inputs.size(0)
+            running_corrects += torch.sum(preds == labels.data).item()
 
-    total_loss = float(running_loss) / float(len(test_loader.dataset))
-    total_acc = float(running_corrects) / float(len(test_loader.dataset))
-
+    total_loss = running_loss / len(test_loader.dataset)
+    total_acc = running_corrects/ len(test_loader.dataset)
     logger.info(f"Testing Loss: {total_loss}")
     logger.info(f"Testing Accuracy: {total_acc}")
+    # print(f"Testing Accuracy: {100*total_acc}, Testing Loss: {total_loss}")
     
-    return all_preds, all_labels
-
-def print_confusion_matrix(y_true, y_pred, class_names=None, save_path=None):
-    '''
-    Print and optionally save confusion matrix with detailed metrics
-    '''
-    # Calculate confusion matrix
-    cm = confusion_matrix(y_true, y_pred)
-    
-    # Print confusion matrix as text
-    logger.info("Confusion Matrix:")
-    logger.info(f"\n{cm}")
-    
-    # Print classification report
-    logger.info("Classification Report:")
-    if class_names:
-        report = classification_report(y_true, y_pred, target_names=class_names)
-    else:
-        report = classification_report(y_true, y_pred)
-    logger.info(f"\n{report}")
-    
-    # Create and save visual confusion matrix if matplotlib is available
-    try:
-        plt.figure(figsize=(10, 8))
-        
-        if class_names:
-            sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', 
-                       xticklabels=class_names, yticklabels=class_names)
-        else:
-            sns.heatmap(cm, annot=True, fmt='d', cmap='Blues')
-        
-        plt.title('Confusion Matrix')
-        plt.xlabel('Predicted Label')
-        plt.ylabel('True Label')
-        
-        if save_path:
-            plt.savefig(os.path.join(save_path, 'confusion_matrix.png'), 
-                       dpi=300, bbox_inches='tight')
-            logger.info(f"Confusion matrix saved to {save_path}/confusion_matrix.png")
-        
-        plt.close()  # Close to free memory
-        
-    except Exception as e:
-        logger.warning(f"Could not create visual confusion matrix: {e}")
-    
-    return cm
+#------------------------------------------------------------------------------------------
 
 
-def train(model, train_loader, validation_loader, epochs, criterion, optimizer, hook, device):
+def train(model, train_loader, validation_loader, epochs, criterion, optimizer, device):
     '''
     TODO: Complete this function that can take a model and
           data loaders for training and will get train the model
           Remember to include any debugging/profiling hooks that you might need
     '''
+
     best_loss = 1e6
     image_dataset = {'train': train_loader, 'valid': validation_loader}
     loss_counter = 0
-    # hook.set_mode(modes.TRAIN)
 
     for epoch in range(epochs):
         for phase in ['train', 'valid']:
             print(f"Epoch {epoch}, Phase {phase}")
             if phase == 'train':
                 model.train()
-                hook.set_mode(modes.TRAIN)
             else:
                 model.eval()
-                hook.set_mode(modes.EVAL)
             running_loss = 0.0
             running_corrects = 0
             running_samples = 0
 
             for step, (inputs, labels) in enumerate(image_dataset[phase]):
+                # Move data to device
                 inputs = inputs.to(device)
                 labels = labels.to(device)
                 
@@ -155,7 +93,6 @@ def train(model, train_loader, validation_loader, epochs, criterion, optimizer, 
                 running_loss += loss.item() * inputs.size(0)
                 running_corrects += torch.sum(preds == labels.data).item()
                 running_samples += len(inputs)
-                
                 if running_samples % 2000 == 0:
                     accuracy = running_corrects / running_samples
                     print("Images [{}/{} ({:.0f}%)] Loss: {:.2f} Accuracy: {}/{} ({:.2f}%)".format(
@@ -177,15 +114,17 @@ def train(model, train_loader, validation_loader, epochs, criterion, optimizer, 
                     best_loss = epoch_loss
                 else:
                     loss_counter += 1
-            logger.info('{} loss: {:.4f}, acc: {:.4f}, best loss: {:.4f}'.format(phase,
-                                                                                        epoch_loss,
-                                                                                        epoch_acc,
-                                                                                        best_loss))
+            logger.info('{} loss: {:.4f}, acc: {:.4f}, best loss: {:.4f}'.format(phase,epoch_loss,
+                                                                                 epoch_acc,best_loss))
+            
         if loss_counter==3:
             print("Finish training because epoch loss increased")            
             break
+            
     return model
+
     
+#------------------------------------------------------------------------------------------
 def net():
     '''
     TODO: Complete this function that initializes your model
@@ -195,6 +134,18 @@ def net():
     # load the pretrained model
     model = models.resnet50(pretrained=True)
     
+    # # freeze the different parameters of the model to use for feature extraction
+    # for param in model.parameters():
+    #     param.requires_grad = False
+        
+    # # find the number of inputs to the final layer of the network
+    # num_inputs = model.fc.in_features
+    # model.fc = nn.Sequential(
+    #                nn.Linear(num_inputs, 128),
+    #                nn.ReLU(inplace=True),
+    #                nn.Linear(128, num_classes))
+        # Freeze early layers but allow fine-tuning of later layers
+    # This is better than freezing all parameters
     for name, param in model.named_parameters():
         if 'layer4' not in name and 'fc' not in name:
             param.requires_grad = False
@@ -215,12 +166,13 @@ def net():
     
     return model
 
-    
-def create_data_loaders(data, batch_size):
+#---------------------------------------------------------------------------------------------
+def create_data_loaders(data , batch_size):
     '''
     This is an optional function that you may or may not need to implement
     depending on whether you need to use data loaders or not
     '''
+    # creating the dataloaders
     train_data_path = os.path.join(data, 'train')
     test_data_path = os.path.join(data, 'test')
     validation_data_path = os.path.join(data, 'valid')
@@ -270,94 +222,95 @@ def create_data_loaders(data, batch_size):
 
     return train_data_loader, test_data_loader, validation_data_loader
     
-
+#----------------------------------------------------------------------------------------------
 def main(args):
-    # Set up device
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    logger.info(f'Using device: {device}')
+    # Setup device - use GPU if available, otherwise CPU
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    logger.info(f"Using device: {device}")
     
-    # Log GPU information if available
-    if device.type == 'cuda':
-        logger.info(f'GPU: {torch.cuda.get_device_name(0)}')
-        logger.info(f'GPU Memory: {torch.cuda.get_device_properties(0).total_memory / 1024**3:.1f} GB')
+    # Check if multiple GPUs are available
+    if torch.cuda.device_count() > 1:
+        logger.info(f"Using {torch.cuda.device_count()} GPUs")
     
+    # logging the used hyperparameters
     logger.info(f'Hyperparameters are LR: {args.lr}, Batch Size: {args.batch_size}')
     logger.info(f'Data Paths: {args.data}')
+    
     '''
     TODO: Initialize a model by calling the net function
     '''
     model=net()
-    model = model.to(device)  # Move model to device
+    
+    # Move model to device
+    model = model.to(device)
+    
+    # Use DataParallel if multiple GPUs are available
+    if torch.cuda.device_count() > 1:
+        model = nn.DataParallel(model)
     
     '''
     TODO: Create your loss and optimizer
     '''
     loss_criterion = nn.CrossEntropyLoss()
-    optimizer = optim.Adam(model.fc.parameters(), args.lr)
+    optimizer = optim.Adam(model.fc.parameters() if not isinstance(model, nn.DataParallel) 
+                          else model.module.fc.parameters(), args.lr)
     
     '''
     TODO: Call the train function to start training your model
     Remember that you will need to set up a way to get training data from S3
     '''
-    logger.info("create the SMDebug hook and register to the model.")
-    
-    hook = smd.Hook.create_from_json_file()
-    hook.register_hook(model)
-    hook.register_loss(loss_criterion)   
-    
+    # loading the data
     train_loader, test_loader, validation_loader = create_data_loaders(args.data,
                                                                        args.batch_size)
 
     logger.info("Training the model")
     
-    model = train(model, train_loader, validation_loader, args.epochs, loss_criterion, optimizer, hook, device)
-  
+    model = train(model, train_loader, validation_loader, args.epochs, loss_criterion, optimizer, device)
+    
     '''
     TODO: Test the model to see its accuracy
     '''
     logger.info("Testing the model")
     
-    # Get predictions and true labels for confusion matrix
-    test_preds, test_labels = test(model, test_loader, loss_criterion, hook, device)
-
-    class_names = ["1", "2", "3", "4", "5"]
-    # Print confusion matrix
-    logger.info("Generating confusion matrix...")
-    confusion_matrix_result = print_confusion_matrix(
-        test_labels, 
-        test_preds, 
-        class_names=class_names,
-        save_path=args.output_dir
-    )
+    test(model, test_loader, loss_criterion, device)
     
     '''
     TODO: Save the trained model
     '''
     logger.info("Saving the model")
     
-    # Move model to CPU before saving to ensure compatibility
-    model = model.cpu()
     path = os.path.join(args.model_dir, 'model.pth')
-    torch.save(model.state_dict(), path)
-
+    # Handle DataParallel case when saving
+    model_state_dict = model.module.state_dict() if isinstance(model, nn.DataParallel) else model.state_dict()
+    torch.save(model_state_dict, path)
+    
+#-------------------------------------------------------------------------------------------------------
 if __name__=='__main__':
     parser=argparse.ArgumentParser()
     '''
-    TODO: Specify any training args that you might need
+    TODO: Specify all the hyperparameters you need to use to train your model.
     '''
+    # Training settings
     # epoch
     parser.add_argument(
         "--epochs",
         type=int,
         default=10
     )
-    parser.add_argument('--lr',
-                        type=float,
-                        default=0.001)
-    parser.add_argument('--batch-size',
-                        type=int,
-                        default=32)
+    # batch_size
+    parser.add_argument(
+        "--batch-size",
+        type=int,
+        default=32
+    )
+    # lr
+    parser.add_argument(
+        "--lr", 
+        type=float,
+        default=0.001
+    )
 
+    # Container environment
     parser.add_argument('--data', type=str,
                         default=os.environ['SM_CHANNEL_TRAINING'])
     parser.add_argument('--model_dir',
@@ -367,7 +320,6 @@ if __name__=='__main__':
                         type=str,
                         default=os.environ['SM_OUTPUT_DATA_DIR'])
 
-    args = parser.parse_args()
-    print(args)
-
+    args=parser.parse_args()
+    
     main(args)
