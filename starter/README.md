@@ -8,7 +8,7 @@ This project leverages AWS SageMaker to train a pre-trained model for object cou
 
 ### Overview
 
-The dataset is sourced from the [AWS Marketplace](https://aws.amazon.com/marketplace/pp/prodview-2v2jac3cw2cba#resources), using a subset based on the `file_list.json` file. This dataset contains bin images with varying numbers of objects, making it ideal for training object counting models.
+The dataset is sourced from the [Amazon Bin Image Dataset](https://registry.opendata.aws/amazon-bin-imagery/), using a subset based on the `file_list.json` file. This dataset contains bin images with varying numbers of objects, making it ideal for training object counting models.
 
 ### Data Access and Preparation
 
@@ -102,7 +102,7 @@ hyperparameters = {
 - **Test Accuracy**: 39.5% (improved from 37.9%)
 - **Results**: Three classes now show majority predictions in correct classes
 - **Confusion Matrix**: ![Final Results](confusion_matrix3.png)
-- **Hyperparameter Tuning Results**: ![Tuning Results](hyperparmter_tuning.png)
+- **Hyperparameter Tuning Results**: ![Tuning Results](hyperparamter_tuning.png)
 
 ### Model Profiling
 
