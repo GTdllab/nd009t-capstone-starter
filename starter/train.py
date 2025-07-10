@@ -1,5 +1,3 @@
-#TODO: Import your dependencies.
-#For instance, below are some dependencies you might need if you are using Pytorch
 import numpy as np
 import torch
 import torch.nn as nn
@@ -29,15 +27,8 @@ logger.setLevel(logging.DEBUG)
 logger.addHandler(logging.StreamHandler(sys.stdout))
 
 
-
-#TODO: Import dependencies for Debugging andd Profiling
-
 def test(model, test_loader, criterion, hook, device):
-    '''
-    TODO: Complete this function that can take a model and a 
-          testing data loader and will get the test accuray/loss of the model
-          Remember to include any debugging/profiling hooks that you might need
-    '''
+
     model.eval()
     hook.set_mode(modes.EVAL)
     running_loss=0.0
@@ -116,11 +107,6 @@ def print_confusion_matrix(y_true, y_pred, class_names=None, save_path=None):
 
 
 def train(model, train_loader, validation_loader, epochs, criterion, optimizer, hook, device):
-    '''
-    TODO: Complete this function that can take a model and
-          data loaders for training and will get train the model
-          Remember to include any debugging/profiling hooks that you might need
-    '''
     best_loss = 1e6
     image_dataset = {'train': train_loader, 'valid': validation_loader}
     loss_counter = 0
@@ -187,10 +173,6 @@ def train(model, train_loader, validation_loader, epochs, criterion, optimizer, 
     return model
     
 def net():
-    '''
-    TODO: Complete this function that initializes your model
-          Remember to use a pretrained model
-    '''
     num_classes = 5
     # load the pretrained model
     model = models.resnet50(pretrained=True)
@@ -202,12 +184,8 @@ def net():
     # Improved classifier head
     num_inputs = model.fc.in_features
     model.fc = nn.Sequential(
-        nn.Linear(num_inputs, 256),
-        nn.BatchNorm1d(256),
-        nn.ReLU(inplace=True),
-        nn.Dropout(0.5),
-        nn.Linear(256, 128),
-        nn.BatchNorm1d(128),
+        nn.Dropout(0.6),
+        nn.Linear(num_inputs, 128),
         nn.ReLU(inplace=True),
         nn.Dropout(0.3),
         nn.Linear(128, num_classes)
@@ -217,10 +195,6 @@ def net():
 
     
 def create_data_loaders(data, batch_size):
-    '''
-    This is an optional function that you may or may not need to implement
-    depending on whether you need to use data loaders or not
-    '''
     train_data_path = os.path.join(data, 'train')
     test_data_path = os.path.join(data, 'test')
     validation_data_path = os.path.join(data, 'valid')
@@ -284,21 +258,14 @@ def main(args):
     logger.info(f'Hyperparameters are LR: {args.lr}, Batch Size: {args.batch_size}')
     logger.info(f'Data Paths: {args.data}')
     '''
-    TODO: Initialize a model by calling the net function
+    Initialize a model by calling the net function
     '''
     model=net()
     model = model.to(device)  # Move model to device
-    
-    '''
-    TODO: Create your loss and optimizer
-    '''
+
     loss_criterion = nn.CrossEntropyLoss()
     optimizer = optim.Adam(model.fc.parameters(), args.lr)
     
-    '''
-    TODO: Call the train function to start training your model
-    Remember that you will need to set up a way to get training data from S3
-    '''
     logger.info("create the SMDebug hook and register to the model.")
     
     hook = smd.Hook.create_from_json_file()
@@ -311,10 +278,7 @@ def main(args):
     logger.info("Training the model")
     
     model = train(model, train_loader, validation_loader, args.epochs, loss_criterion, optimizer, hook, device)
-  
-    '''
-    TODO: Test the model to see its accuracy
-    '''
+
     logger.info("Testing the model")
     
     # Get predictions and true labels for confusion matrix
@@ -329,10 +293,7 @@ def main(args):
         class_names=class_names,
         save_path=args.output_dir
     )
-    
-    '''
-    TODO: Save the trained model
-    '''
+
     logger.info("Saving the model")
     
     # Move model to CPU before saving to ensure compatibility
@@ -342,9 +303,6 @@ def main(args):
 
 if __name__=='__main__':
     parser=argparse.ArgumentParser()
-    '''
-    TODO: Specify any training args that you might need
-    '''
     # epoch
     parser.add_argument(
         "--epochs",

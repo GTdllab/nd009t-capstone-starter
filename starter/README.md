@@ -1,82 +1,167 @@
-**NOTE:** This file is a template that you can use to create the README for your project. The **TODO** comments below will highlight the information you should be sure to include.
-
 # Capstone Project: Inventory Monitoring Using Object Count Estimation from Bin Images
 
-**TODO:** Write a short introduction to your project.
-The project is to Use AWS Sagemaker to train a pretrained model that can perform object count. By using sagemaker hyperparameter tuning and debugger and other ML improvement and deployment to make a pipeline of machine learning solution to do the test. 
+## Project Overview
+
+This project leverages AWS SageMaker to train a pre-trained model for object count estimation in bin images. The solution utilizes SageMaker's hyperparameter tuning, debugger, and other ML improvement tools to create a complete machine learning pipeline for inventory monitoring applications.
 
 ## Dataset
 
 ### Overview
-**TODO**: Explain about the data you are using and where you got it from.
-the data is from !(here)[https://aws.amazon.com/marketplace/pp/prodview-2v2jac3cw2cba#resources], subset of it based on this file ```file_list.json``` 
 
-### Access
-**TODO**: Explain how you are accessing the data in AWS and how you uploaded it
-use this code to help access the data in AWS:
-```
+The dataset is sourced from the [AWS Marketplace](https://aws.amazon.com/marketplace/pp/prodview-2v2jac3cw2cba#resources), using a subset based on the `file_list.json` file. This dataset contains bin images with varying numbers of objects, making it ideal for training object counting models.
+
+### Data Access and Preparation
+
+The data is accessed and downloaded from AWS S3 using the following approach:
+
+```python
 def download_and_arrange_data():
     s3_client = boto3.client('s3')
 
     with open('file_list.json', 'r') as f:
-        d=json.load(f)
+        d = json.load(f)
 
     for k, v in d.items():
         print(f"Downloading Images with {k} objects")
-        directory=os.path.join('train_data', k)
+        directory = os.path.join('train_data', k)
         if not os.path.exists(directory):
             os.makedirs(directory)
         for file_path in tqdm(v):
-            file_name=os.path.basename(file_path).split('.')[0]+'.jpg'
+            file_name = os.path.basename(file_path).split('.')[0] + '.jpg'
             s3_client.download_file('aft-vbi-pds', os.path.join('bin-images', file_name),
-                             os.path.join(directory, file_name))
+                                  os.path.join(directory, file_name))
 
 download_and_arrange_data()
 ```
 
-Total data files downloaded is 10443. they are all jpg files, with 1 object has 1228 files, 2 objects:2299, 3 objects:2666, 4 objects:2372, 5 objects:1875 
-You can find more information about the data here.
+### Dataset Statistics
 
-Then split data into train (75%) test (15%) and valid (15%). 
+- **Total files downloaded**: 10,443 JPG images
+- **Distribution by object count**:
+  - 1 object: 1,228 files
+  - 2 objects: 2,299 files  
+  - 3 objects: 2,666 files
+  - 4 objects: 2,372 files
+  - 5 objects: 1,875 files
 
-upload train, test and valid folder to AWS through this :
+### Data Splitting
+
+The dataset was split into:
+- **Training set**: 75%
+- **Test set**: 15%
+- **Validation set**: 15%
+
+Data upload to AWS S3:
+```bash
+aws s3 cp Inventory_Image s3://capstone2025inventory/ --recursive --quiet
 ```
-!aws s3 cp Inventory_Image s3://capstone2025inventory/ --recursive --quiet
-```
-
 
 ## Model Training
-**TODO**: What kind of model did you choose for this experiment and why? Give an overview of the types of hyperparameters that you specified and why you chose them. Also remember to evaluate the performance of your model.
 
-ResNet50 as pretained model is used, because it has proven it's ability in CV task.
+### Model Selection
 
-### Initial training
+**ResNet50** was chosen as the pre-trained model due to its proven effectiveness in computer vision tasks and strong performance on image classification problems.
 
-a initial training has done with random set of parameter lr: 0.001 and batch-size: 32 
-the model can acheive 33.3% accuracy in test data, however from the confusion matrix !()[confusion_matrix1.png]
+### Training Progress
 
+#### Initial Training
+- **Parameters**: Learning rate = 0.001, Batch size = 32
+- **Test Accuracy**: 29.3%
+- **Results**: Only one class (class 3) showed majority predictions falling in the correct class
+- **Confusion Matrix**: ![Initial Results](confusion_matrix1.png)
 
-however from the confusion matrix, can see that class 3 and 5 perform poorly, the biggest prediction fall to other classes.
+#### Refined Training
+After analyzing the outputs and making adjustments (detailed in `sagemaker.ipynb`):
+- **Test Accuracy**: 37.9% (improved from 29.3%)
+- **Results**: Two classes now show majority predictions in correct classes
+- **Confusion Matrix**: ![Refined Results](confusion_matrix2.png)
 
-also analyze the debugger output: !()[debugger_output1.png]
+#### Hyperparameter Tuning
+The following hyperparameters were tuned to optimize model performance:
 
-
-Due to time and resource limited, only two hyperparameters used to fine tune are here with shorted range:
-
+```python
 hyperparameter_ranges = {
-    "lr": ContinuousParameter(0.0001, 0.001),
+    "lr": ContinuousParameter(0.00005, 0.002),  
     "batch-size": CategoricalParameter([32, 64, 128]),
+    "weight-decay": ContinuousParameter(0.0001, 0.01),  
+    "dropout-rate": ContinuousParameter(0.3, 0.6)  
 }
+```
 
-the best found here is .
+**Best hyperparameters found**:
+```python
+hyperparameters = {
+    'batch-size': '32',
+    'dropout-rate': '0.3690470843213408',
+    'lr': '0.00019386339021814795',
+    'weight-decay': '0.00030516592316427005'
+}
+```
 
-##
+#### Final Model Performance
+- **Test Accuracy**: 39.5% (improved from 37.9%)
+- **Results**: Three classes now show majority predictions in correct classes
+- **Confusion Matrix**: ![Final Results](confusion_matrix3.png)
+- **Hyperparameter Tuning Results**: ![Tuning Results](hyperparmter_tuning.png)
 
+### Model Profiling
+
+The profiler report for the final model can be found here: [Profiler Report](./ProfilerReport/profiler-output/profiler-report.html)
 
 ## Machine Learning Pipeline
-**TODO:** Explain your project pipeline.
-first train the model with a random set of parameters, and then use hyperparamter tunning to select the best set of parameters. and then look through the debugger output to find out potential problems, and train the model again with fixes. 
 
+The complete ML pipeline follows these steps:
 
-## Standout Suggestions
-**TODO (Optional):** This is where you can provide information about any standout suggestions that you have attempted.
+1. **Initial Training**: Train the model with random parameters to establish baseline performance
+2. **Analysis & Refinement**: Analyze outputs to identify potential issues and retrain with fixes
+3. **Hyperparameter Tuning**: Use SageMaker's hyperparameter tuning to find optimal parameters
+4. **Model Deployment**: Deploy the trained model to an endpoint for inference
+
+### Deployment Configuration
+
+The deployment pipeline includes:
+- **Custom ImagePredictor class** for handling JPEG inputs and JSON outputs
+- **PyTorch model deployment** to a single `ml.m5.large` instance endpoint
+- **Inference script** (`inference.py`) with:
+  - Model loading from saved `.pth` file
+  - JPEG image preprocessing with standard normalization
+  - Model prediction with `torch.no_grad()`
+  - JSON response formatting
+
+### Endpoint Usage
+
+To query the deployed endpoint:
+
+```python
+from sagemaker.predictor import Predictor
+
+predictor = ImagePredictor(
+    endpoint_name='pytorch-inference-2025-07-10-04-19-01-577',
+    sagemaker_session=sagemaker.Session()
+)
+
+image_name = 'path_to_your_image.jpg'  # Specify your image path
+with open(image_name, "rb") as image:
+    f = image.read()
+    img_bytes = bytearray(f)
+
+response = predictor.predict(img_bytes, initial_args={"ContentType": "image/jpeg"})
+print(response)  # Returns predicted class and probability
+```
+
+## Results Summary
+
+The project successfully demonstrated progressive improvement in model performance:
+- **Baseline**: 29.3% accuracy
+- **After refinement**: 37.9% accuracy  
+- **After hyperparameter tuning**: 39.5% accuracy
+
+The final model shows reasonable performance for object counting across multiple classes, with successful deployment to a SageMaker endpoint for real-time inference.
+
+## Files and Resources
+
+- `sagemaker.ipynb` - Main notebook with detailed implementation
+- `file_list.json` - Dataset file list
+- `inference.py` - Deployment inference script
+- `ProfilerReport/` - Model profiling results
+- Confusion matrices and tuning results (PNG files)
